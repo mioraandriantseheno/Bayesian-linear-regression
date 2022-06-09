@@ -1,0 +1,800 @@
+---
+title: "Projet Bayesien - Mutations -"
+author: "Miora Tsiry R."
+date: "6/07/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+## **Introduction** 
+
+Le jeu de données "Mutations" contient les informations relatives aux mutations des enseignants de collèges et lycées français. Ce jeu de données retrace le nombre de points requis dans différentes disciplines de différents lieux d'établissements permettant à l'enseignant d'obtenir sa mutation professionnelle dans le lycée/collège désiré. \
+Notre base de données possède 516 lignes et 23 colonnes. Dans les 5 premières colonnes, nous retrouverons les caractéristiques propres au lieu d'établissement (code de l'établissement, ville, commune, nom de l'établissement) qui sont repértoriés dans des variables qualitatives. Dans les autres variables (quantitatives), nous recensons le nombre de points (colonne Barre) qui est l'objet de notre analyse prédictive, et également plusieurs variables relatant les effectifs, les taux de réussite au bac, les taux d'accès aux niveaux/filières respectifs. \
+
+Nous allons commencer par charger puis observer le résumé des données. \
+
+```{r Preparation_packages_librairies, include=FALSE}
+
+#install.packages("ggplot2")
+#install.packages("dplyr")
+#install.packages("questionr")
+#install.packages("stats")
+#install.packages("bms")
+#install.packages("bayess")
+library(ggplot2)
+library(tidyverse)
+library(dplyr, quietly=TRUE)
+library(MASS)
+library(MCMCpack)
+library(corrplot)
+library(brms)
+library(bayess)
+library(zoo)
+library(leaps)
+library(plyr)
+```
+
+```{r Chargement_donnees,results='hide',echo=FALSE}
+datamutations = read.csv("mutations2.csv")
+head(datamutations)
+tail(datamutations)
+```
+
+```{r Resume_donnees,results='hold',echo=FALSE}
+
+summary(datamutations)
+```
+Sur notre variable réponse Barre, nous nous apercevons par lecture que son min est à 21 et son max à 2056. Nous verrons qu'il y a un couple Etablissement/Matiere qui nécessite 2056 points, le maximum de points. L'étendue des valeurs est assez importante. Une distribution de cette variable sera tracée plus loin dans l'analyse descriptive.\ 
+Les taux d'accès et/ou de réussite ne sont pas incohérents car ont leurs valeurs comprises entre 0 et 100 (il s'agit d'un pourcentage). \
+
+
+## **I. Statistiques descriptives**
+
+```{r Donnees_manquantes,echo=TRUE,results='hold'}
+
+sum(is.na(datamutations))
+```
+
+Il n'y a pas de données manquantes ce qui est rassurant. \
+Regardons la distribution de la variable Barre. \
+
+ *Distribution de Barre*
+\
+```{r Distribution_Barre,echo=FALSE,fig.show='asis'}
+ggplot(datamutations) +
+  aes(x = Barre) +
+  geom_histogram(colour="black", fill="lightblue",binwidth = 40) +
+  ggtitle("Distribution de Barre") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold.italic",colour="blue",size=10, hjust = 0.5)
+  )
+
+ggplot(datamutations) +
+  aes(y = Barre) +
+  geom_boxplot(colour="black", fill="navyblue") +
+  ggtitle("Boite à moustache de Barre") +
+  coord_flip()+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold.italic",colour="blue",size=10, hjust = 0.5)
+  )
+
+```
+\
+La distribution générale de Barre montre une forte asymétrie à droite (vue sur l'histogramme et sur la boite à moustache). La plupart des établissements exigent des points en dessous de 500, seuls certains sont hautement stricts sur des disciplines et vont jusqu'à 2000 points requis.  Nous remarquons également que les moustaches sont courtes, les plages des 25% inférieurs et 25% supérieurs des valeurs s'étendent entre 21 le minimum et un peu plus de 500. Aussi, nous voyons un certain nombre de valeurs aberrantes en dehors de la boite et des moustaches, le maximum étant atteint en 2056 points. L'allure de cette distribution illustre également une queue épaisse visiblement, et peut évoquer une loi de Pareto. \
+
+\pagebreak
+
+*Relation de Barre en fonction des Matieres*
+
+```{r Relation_Barre_de_Matiere,echo=FALSE,fig.show='asis'}
+ggplot(datamutations) +
+  aes(x = Matiere, y= Barre) +
+  geom_point(colour="navyblue", alpha=0.4) +
+  ggtitle("Barre en fonction de Matieres") +
+  xlab("Matieres") +
+  ylab("Barre")+
+  theme_gray() +
+  theme(
+    plot.title = element_text(face = "bold.italic",colour="blue",size=9, hjust = 0.5),
+    axis.title.x = element_text(face = "italic",colour = "grey",size = 9),
+    axis.text.x = element_text(face="bold", color="#993333", 
+                           size=7, angle=90),
+    axis.title.y  = element_text(face = "italic",colour = "grey",size = 9)
+  )
+```
+De façon globale, les nombres de points (Barre) dans les disciplines exigés se situent en grande majorité entre 0 et un peu plus de 500 points, il y a certains points au delà de 1000 et jusqu'à 2000. Ces établissements sont ceux qui exigent le plus grand nombre de points dans des disciplines précises. Par exemple, en Allemand, un lycée en particulier exige bien plus de 2000 points ; de même, en éco-ge-fin, il y a un établissement qui exige un nombre de points supérieur à 2000.  Dans les matières phares comme l'anglais, l'eps, l'histoire-géo ou les maths en particulier, la majorité des établissements exigent un nombre de points en dessous ou égal à 500 environ. \ 
+
+\pagebreak
+
+*Relation de Barre en fonction des Villes*
+
+```{r Relation_Barre_de_Ville,echo=FALSE,fig.show='asis',results='hold'}
+datamutations_barre_ville <- datamutations[order(datamutations$Barre,decreasing = TRUE),]
+DfVille <- as.data.frame(datamutations_barre_ville[,c(2,6)])
+head(DfVille)
+
+ggplot(DfVille) +
+  aes(x = ville,y=Barre) +
+  geom_jitter() +
+  ggtitle("Barre en fonction des villes") +
+  xlab("Villes") +
+  ylab("Barre")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold.italic",colour="blue",size=11, hjust = 0.5),
+    axis.title.x = element_text(face = "italic",colour = "grey",size = 10),
+     axis.text.x = element_text(face="bold", color="#993333", 
+                           size=7, angle=90),
+    axis.title.y  = element_text(face = "italic",colour = "grey",size = 10)
+  )
+```
+Le top 5 des villes où se situent les établissements les plus exigeants sont Arpajon, Montigny-le-Bretonneux, Levallois Perret, Bois Colombes et Bondoufle. \
+
+Comme nous allons nous focaliser sur les couples Etablissements/Matiere, illustrons les données de ces couples. \
+
+\pagebreak
+
+*Relation de Etablissement en fonction des Matieres*
+
+```{r Relation_Etablissement_de_Matiere,echo=FALSE,fig.show='asis'}
+
+compte = count(datamutations,"etablissement")
+ggplot(compte) +
+  aes(x = etablissement, y= freq) +
+  geom_jitter(colour="navyblue") +
+  ggtitle("Etablissement et Matieres") +
+  xlab("Etablissement") +
+  ylab("Matieres")+
+  theme_gray() +
+  theme(
+    plot.title = element_text(face = "bold.italic",colour="blue",size=9, hjust = 0.5),
+    axis.title.x = element_text(face = "italic",colour = "grey",size = 9),
+    axis.text.x = element_text(face="bold", color="#993333", 
+                           size=7, angle=90),
+    axis.text.y = element_text(face="bold", color="black", 
+                           size=7, angle=0),
+    axis.title.y  = element_text(face = "italic",colour = "grey",size = 9)
+  )
+
+boxplot(compte$freq, col = grey(0.8),main = "Le nombre de matières", ylab = "Nb matières")
+abline(h = median(compte$freq, na.rm = TRUE), col = "navy", lty = 2)
+text(1.35, median(compte$freq, na.rm = TRUE) + 0.15, "Médiane", col = "navy")
+Q1 <- quantile(compte$freq, probs = 0.25, na.rm = TRUE)
+abline(h = Q1, col = "darkred")
+text(1.35, Q1 + 0.15, "Q1 : premier quartile", col = "darkred", lty = 2)
+Q3 <- quantile(compte$freq, probs = 0.75, na.rm = TRUE)
+abline(h = Q3, col = "darkred")
+text(1.35, Q3 + 0.15, "Q3 : troisième quartile", col = "darkred", lty = 2)
+arrows(x0 = 0.7, y0 = quantile(compte$freq, probs = 0.75, na.rm = TRUE), x1 = 0.7, y1 = quantile(compte$freq, probs = 0.25, na.rm = TRUE), length = 0.1, code = 3)
+text(0.7, Q1 + (Q3 - Q1) / 2 + 0.15, "h", pos = 2)
+mtext("L'écart inter-quartile h contient 50 % des individus", side = 1)
+abline(h = Q1 - 1.5 * (Q3 - Q1), col = "darkgreen")
+text(1.35, Q1 - 1.5 * (Q3 - Q1) + 0.15, "Q1 -1.5 h", col = "darkgreen", lty = 2)
+abline(h = Q3 + 1.5 * (Q3 - Q1), col = "darkgreen")
+text(1.35, Q3 + 1.5 * (Q3 - Q1) + 0.15, "Q3 +1.5 h", col = "darkgreen", lty = 2)
+compte_mean=mean(compte$freq)
+abline(h = mean(compte$freq), col = "orange")
+text(x = 1,y =compte_mean - 0.20, 
+     labels = paste("Moyenne :", round(compte_mean, 1)), col = "orange")
+```
+Sur ces graphes sont illustrés le nombre de matières enseignées par établissement. Ainsi, en moyenne, il y a 5,1 matières par établissement renseignées dans notre échantillon. Pour quelques établissements, nous pouvons apercevoir qu'il y a 16 matières renseignées auxquelles peuvent prétendre les enseignants. Avec la boite à moustaches, nous lisons que 75% des établissements (Q3) ont un nombre de matières entre 3 et 6. \
+
+
+Investiguons la corrélation sur les variables quantitatives uniquement afin de mettre en évidence la/les variables qui peuvent potentiellement avoir un lien avec notre variable cible Barre. \
+
+\pagebreak
+
+*Matrice de corrélation sur variables quantitatives*
+
+```{r Matrice_correlation_var, results='hide', fig.show='asis', fig.height=12,fig.width=12, warning=FALSE,message=FALSE}
+library(corrplot)
+correl=cor(datamutations[,c(6:23)])
+cor(correl, method = "pearson")
+corrplot(correl, type = "upper", order="hclust",tl.col="black",tl.srt=45)
+```
+
+La variable Barre a assez peu de corrélation avec les variables explicatives évoquées. Elle présente de très légères corrélations toutes négatives avec ces dernières, dont la plus importante est effectif_presents_serie_s (-0.6). \
+En revanche, les autres variables ont de très fortes corrélations entre elles. \
+Sur le groupe des effectifs notamment, nous voyons une forte corrélation positive entre les effectifs d'un niveau inférieur et supérieur, et également entre les séries. \
+De la même façon pour les taux de réussite sur les séries qui ont une influence entre eux, puisque cela concerne le même établissement. \
+On pourrait ainsi se contenter de retenir par exemple une seule variable du groupe des variables effectifs et une seule variable du groupe taux de réussite, mais on va quand même les conserver ainsi. \
+A noter au passage que la variable taux_brut_de_reussite_serie_l n'a que très peu de corrélations avec les autres variables. \
+Si l'on souhaitait réduire le nombre de variables, certaines variables qui n'apportent que peu d'informations pourraient être écartées. \
+
+Après le constat de toutes ces informations, nous pouvons passer à l'étape de régression. \
+
+Procédons à présent à la régression linéaire bayesienne. \
+
+## **II. Régression linéaire**
+
+Ce que l'on cherche à expliquer ici c'est donc la variable réponse Barre en fonction par les variables caractéristiques du lycée. \
+
+*Rappel de la méthode de régression linéaire ordinaire*
+
+Comme vu en cours, le modèle linéaire gaussien souhaite expliquer les observations ($y_i$) par des covariables ($x^1,...x^p$) avec le modèle : \
+   
+$y_i=\beta_0+\beta_1x_i^1+...+\beta_px_i^p+\epsilon_i$   $\epsilon_i\sim N(0,\sigma^2)$ iid. \
+
+On note $y$ le vecteur des observations ($y_1,...,y_n$) et X la matrice des covariables. Dans le cadre fréquentiste, nous maximisons la vraisemblance \
+   $L(\beta,\sigma^2\mid y,X) = (2\pi\sigma^2)^{-\frac{n}{2}} exp[-\frac{1}{2\sigma^2}(y-X\beta)^T(y-X\beta)]$) \
+   et on a : \
+   $\hat{\beta}= (X^TX)^{-1}X^Ty$ \
+   $\hat{\sigma^2}=\frac{1}{n}(y-X\hat{\beta})^T(y-X\hat{\beta})$ \
+En notation matricielle, cela se traduit par la formule suivante : \
+              $y\mid \alpha,\beta,\sigma^2 \sim N_n(\alpha 1_n+X\beta,\sigma^2 I_n)$ 
+
+Les $y_i$ suivent des lois normales indépendantes où : \
+            $E(y_i\mid \alpha,\beta,\sigma^2)=\alpha+\sum_{j=1}^{p}\beta_jx_{ij}$ 
+            $V(y_i\mid \alpha,\beta,\sigma^2) =\sigma^2$ 
+  
+
+
+### II.1 Régression linéaire bayesienne
+
+Au préalable, nous allons retraiter notre base de données pour nous assurer qu'il n'y ait pas de redondance d'informations (càd de doublons de lignes). \
+
+```{r Doublons_lignes,echo=FALSE,fig.show='asis',fig.height=12,fig.width=12}
+ggplot(datamutations) +
+  aes(x = etablissement, y= Matiere) +
+  geom_point(colour="navyblue", alpha=0.4) +
+  ggtitle("Etablissement et Matieres") +
+  xlab("Etablissement") +
+  ylab("Matieres")+
+  theme_gray() +
+  theme(
+    plot.title = element_text(face = "bold.italic",colour="blue",size=9, hjust = 0.5),
+    axis.title.x = element_text(face = "italic",colour = "grey",size = 9),
+    axis.text.x = element_text(face="bold", color="#993333", 
+                           size=7, angle=90),
+    axis.text.y = element_text(face="bold", color="black", 
+                           size=7, angle=0),
+    axis.title.y  = element_text(face = "italic",colour = "grey",size = 9)
+  )
+
+
+
+```
+En regardant très attentivement, nous voyons que certains points apparaissent plus foncés, car il y a plus d'une observation concernée. En effet, certaines lignes (censée apparaître une seule fois) sont redondantes, entre autres cela concerne ANGLAIS, ALLEMAND, LETT CLASS...\
+Pour pallier à ces doublons, nous allons supprimer les lignes en double. \
+
+```{r NO_doublons,echo=TRUE}
+datamutations_nodup = datamutations %>% distinct()
+```
+
+Ainsi, nous avons supprimé 6 lignes, il y a donc à présent 510 lignes. \
+
+*Rappel sur le contexte bayesien*
+
+Le choix de la loi a priori est une étape fondamentale dans la régression bayesienne.\
+Dans notre cas, nous allons choisir une loi a priori de Zellner à partir du moment où on considère qu'aucune information n'est disponible sur la loi a priori. L'avantage de cette loi a priori est qu'elle permet d'introduire des informations (très faibles) sur le paramètre de localisation de régression g et surtout d'éviter l'écueil principal de la prior à savoir la structure de corrélation. \
+
+Ainsi, nous prenons comme loi a priori \
+
+  $\beta\mid \sigma^2,X \sim N_{k+1} (\tilde{\beta},\sigma^2M^{-1})$ \
+  $\sigma^2\mid X \sim IG(a,b)$ \
+  où M est une matrice symétrique définie positive de taille (k+1)x(k+1) \
+  
+  Il faut ainsi fixer M de sorte que : \
+  $\beta\mid \sigma^2,X \sim N_{k+1}(\tilde{\beta},g\sigma^2(^tXX)^{-1})$ \
+  $\sigma^2 \sim \pi(\sigma^2\mid X) \propto \sigma^{-2}$ \
+  
+  
+Il faut choisir le paramètre g, g=1 ou g=n selon le poids accordé à la prior. \
+Pour l'espérance à priori $\tilde{\beta}$ ou pourra la prendre = 0 comme nous n'avons pas d'information a priori. \
+ Ainsi, la loi a posteriori se définit alors comme suit : \
+  
+  $\beta\mid \sigma^2, y, X \sim N_{k+1}(\frac{g}{g+1}\hat{\beta},\frac{\sigma^2g}{g+1}(^tXX)^{-1})$
+  $\sigma^2\mid y,X \sim IG(\frac{n}{2}, \frac{s^2}{2} + \frac{1}{2(g+1)}(-\hat{\beta}^T)  {^tX}X(-\hat{\beta}))$ \
+  
+donc : $\beta\mid  y,X \sim Student_{k+1}(n,\frac{g}{g+1}\hat{\beta},\frac{g(s^2 + ((\hat{\beta})^T  {^tX}X\hat{\beta})/(g+1) )}{n(g+1)} (^tXX)^{-1})$ \
+
+Nous allons opérer la transformation log(Barre) dans notre régression linéaire bayésienne et standardiser la matrice de design X, car nous utiliserons la fonction BayesReg plus tard. \
+
+On cherche à calculer la moyenne à priori, à partir de la formule suivante: 
+$E^{\pi}(\beta\mid y) = \frac{g}{g+1} \Big (\hat{\beta} + \tilde{\beta}/g \Big)$
+Où $\hat{\beta}$ est le vecteur des coefficients du modèle linéaire ordinaire obtenu par maximum de vraisemblance. \
+
+Nous n'allons travailler que sur les variables quantitatives. \
+
+```{r Regression_lineaire_bayesienne_bayesReg,results='hold',echo=FALSE,warning=FALSE,message=FALSE}
+
+data_mutations = datamutations_nodup[,-c(1:5)] #suppression des var. qualitatives
+X = as.matrix(data_mutations[-1])
+Y = data_mutations$Barre
+#Récupération des coefficients du modèle linéaire gaussien ordinaire par EMV sans l'Intercept
+reg_lineaire_ord_ssitcpt = lm(Y~X-1)
+summary(reg_lineaire_ord_ssitcpt)
+beta.lm = reg_lineaire_ord_ssitcpt$coefficients
+
+#Standardisation des données
+y=log(data_mutations$Barre)
+x=as.matrix(data_mutations[-1])
+x=scale(x)
+beta0.lm=mean(y)
+
+#Calcul des coefficients du modèle de régression bayesienne avec l'a priori de Zellner (g=n)
+g=length(y) #on considère qu'on va donner le même poids à l'a priori et à une observation
+betatilde=rep(0,dim(x)[2])
+mbetabayes=g/(g+1)*(beta.lm+betatilde/g)
+posterior.mean=rbind(Intercept=beta0.lm,mbetabayes)
+posterior.mean
+
+#Coefficients obtenus à partir du modèle de régression linéaire ordinaire
+beta.lm
+```
+
+Nous obtenons des coefficients assez proches sur les 2 méthodes. \
+
+Pour choisir les covariables significatives, nous allons nous servir des facteurs de Bayes de la fonction BayesReg évoquée précédemment mais en l'adaptant. \
+
+```{r Fonction_factorBayes,results='hold',echo=FALSE,warning=FALSE,message=FALSE }
+
+CalcBayesFactor=function(y,X,g=length(y))
+{
+  n = dim(X)[1]
+  p = dim(X)[2]
+  q = 1
+
+  bfactor=rep(0,p)
+  
+  for(i in 1:p)
+  {
+    X0 = X[,-i]
+    BF = (g+1)^(-q/2) * 
+      ((t(y)%*%y - g/(g+1) * t(y)%*%X0 %*% solve(t(X0)%*%X0) %*% t(X0)%*%y)/
+      (t(y)%*%y - g/(g+1) * t(y)%*%X %*% solve(t(X)%*%X) %*% t(X)%*%y))^(n/2)
+    bfactor[i]=round(log10(BF),4)
+  }
+  
+  bayesfactor<-cbind.data.frame(colnames(X),bfactor)
+return (bayesfactor)
+}
+
+bayesfactor_gn = CalcBayesFactor(y,x,g=length(y))
+bayesfactor_gn
+
+bayesfactor_g1 = CalcBayesFactor(y,x,g=1)
+bayesfactor_g1
+
+
+```
+
+En accordant plus de poids à la loi a priori (avec g=1), certaines variables deviennent significatives au sens de Jeffreys, notamment les variables 6,7,12,13,14 et 15.(les plus bas qui se rapprochent de 0) \
+
+Nous pouvons sélectionner ces 6 variables ressortant significatives qui sont : \
+  - la 6 : taux_brut_de_reussite_serie_s \
+  - la 7 : taux_reussite_attendu_serie_l \
+  - la 12 : taux_acces-brut_seconde_bac \
+  - la 13 : taux_acces_attendu_seconde_bac \
+  - la 14 : taux_acces_brut_premiere_bac \
+  - la 15 : taux_acces_attendu_premiere_bac \
+  
+Investiguons à présent le choix de modèles par un échantillonneur de Gibbs basé sur la fonction ModChoBayesReg réadaptée, de la librairie BayesReg. \
+
+```{r Methode_ChoiceBayesReg,results='hold',echo=FALSE,warning=FALSE,message=FALSE}
+
+ChoiceBayesReg=function(y,X,g=length(y),betatilde=rep(0,dim(X)[2]),bCalc=TRUE, niter=100000,prt=TRUE,nbest=10)
+{
+X=as.matrix(X)
+n=length(y)
+p=dim(X)[2]
+  for (i in 1:p) {
+    X[,i]=X[,i]-mean(X[,i])
+    X[,i]=X[,i]/sqrt(mean(X[,i]^2))
+  }
+  
+if (det(t(X)%*%X)<=1e-7) stop("The design matrix has a rank lower than the number of explanatory variables!
+Calculations cannot be done and the process should be stopped!",call.=FALSE)
+alphaml=mean(y)
+intlike0=(t(y-alphaml)%*%(y-alphaml))^(-(n-1)/2)
+intlikelog0=-((n-1)/2)*log10(t(y-alphaml)%*%(y-alphaml))
+  
+if (bCalc == TRUE)
+{
+  intlike=rep(0,2^p)
+  intlike[1]=intlike0
+  intlikelog=rep(0,2^p)
+  intlikelog[1]=intlikelog0
+  for (i in 2:2^p)
+  {
+    gam=as.integer(intToBits(i-1)[1:p]==1)
+    pgam=sum(gam)
+    Xgam=X[,which(gam==1)]
+    Ugam=solve(t(Xgam)%*%Xgam)%*%t(Xgam)
+    betatildegam=Ugam%*%X%*%betatilde
+    betamlgam=Ugam%*%y
+    s2gam=t(y-alphaml-Xgam%*%betamlgam)%*%(y-alphaml-Xgam%*%betamlgam)
+    kappagam=as.numeric(s2gam+t(betatildegam-betamlgam)%*%t(Xgam)%*%Xgam%*%(betatildegam-betamlgam)/(g+1))
+    intlike[i]=(g+1)^(-pgam/2)*kappagam^(-(n-1)/2)
+    intlikelog[i]=(-pgam/2)*log10(g+1)-((n-1)/2)*log10(kappagam)
+  }
+  
+  intlike=intlike/sum(intlike)
+  intlikeRes=intlikelog-sum(intlikelog)
+  intlikeRes2=intlikelog-prod(intlikelog)
+ 
+  
+  modcho=order(intlikelog)[2^p:(2^p-9)]
+  probtop10=intlikelog[modcho]
+  modtop10=rep("",10)
+  
+  for (i in 1:10)
+  {
+    modtop10[i]=paste(which(intToBits(modcho[i]-1)==1),collapse=" ")
+  }
+  
+  if (prt==TRUE)
+  {
+  cat("\n")
+  cat("bCalc = TRUE")
+  cat("\n")
+  cat("Model posterior probabilities are calculated exactly")
+  cat("\n")
+  cat("\n")
+  print(data.frame(Top10Models=modtop10,PostProb=round(probtop10,4)))
+  cat("\n")
+  cat("\n")
+  }
+  list(top10models=modtop10,postprobtop10=probtop10)
+
+}else{
+if (det(t(X)%*%X)<=1e-7) stop("The design matrix has a rank lower than the number of explanatory variables!
+Calculations cannot be done and the process should be stopped!",call.=FALSE)
+alphaml=mean(y)
+intlike0=(t(y-alphaml)%*%(y-alphaml))^(-(n-1)/2)
+intlikelog0=-((n-1)/2)*log10(t(y-alphaml)%*%(y-alphaml))
+gamma=rep(0,niter)
+mcur=sample(c(0,1),p,replace=TRUE)
+gamma[1]=sum(2^(0:(p-1))*mcur)+1
+pcur=sum(mcur)
+  
+if (pcur==0) {
+  intlikecur=intlike0
+  intlikelogcur=intlikelog0
+}else
+{
+
+  Xcur=X[,which(mcur==1)]
+  Ucur=solve(t(Xcur)%*%Xcur)%*%t(Xcur)
+  betatildecur=Ucur%*%X%*%betatilde
+  betamlcur=Ucur%*%y
+  s2cur=t(y-alphaml-Xcur%*%betamlcur)%*%(y-alphaml-Xcur%*%betamlcur)
+  kappacur=as.numeric(s2cur+t(betatildecur-betamlcur)%*%t(Xcur)%*%Xcur%*%(betatildecur-betamlcur)/(g+1))
+  intlikecur=(g+1)^(-pcur/2)*kappacur^(-(n-1)/2)
+  intlikelogcur=(-pcur/2)*log10(g+1)-((n-1)/2)*log10(kappacur)
+}
+  
+for (i in 1:(niter-1))
+{
+  mprop=mcur
+  j=sample(1:p,1)
+  mprop[j]=abs(mcur[j]-1)
+  pprop=sum(mprop)
+  if (pprop==0){
+    intlikeprop=intlike0 
+    intlikelogprop=intlikelog0 
+  }else
+  {
+    Xprop=X[,which(mprop==1)]
+    Uprop=solve(t(Xprop)%*%Xprop)%*%t(Xprop)
+    betatildeprop=Uprop%*%X%*%betatilde
+    betamlprop=Uprop%*%y
+    s2prop=t(y-alphaml-Xprop%*%betamlprop)%*%(y-alphaml-Xprop%*%betamlprop)
+    kappaprop=as.numeric(s2prop+t(betatildeprop-betamlprop)%*%t(Xprop)%*%Xprop%*%(betatildeprop-betamlprop)/(g+1)   )
+    intlikeprop=(g+1)^(-pprop/2)*kappaprop^(-(n-1)/2)
+    intlikelogprop=(-pprop/2)*log10(g+1)-((n-1)/2)*log10(kappaprop)
+  }
+  dlog=intlikelogprop-intlikelogcur
+  
+  res0 = 10^dlog
+  res2=intlikeprop/intlikecur
+  if (runif(1)<=(res0))
+  #if (runif(1)<=(intlikeprop/intlikecur))))
+  {
+      mcur=mprop
+      intlikecur=intlikeprop
+      intlikelogcur=intlikelogprop
+    }
+      gamma[i+1]=sum(2^(0:(p-1))*mcur)+1
+}
+  
+gamma.res=gamma[20001:niter]
+res=as.data.frame(table(as.factor(gamma.res)))
+lenFq=length(res$Freq)
+odo=order(res$Freq)[length(res$Freq):(length(res$Freq)-9)]
+modcho=res$Var1[odo]
+probtop10=res$Freq[odo]/(niter-20000)
+modtop10=rep("",10)
+reso<-res[order(-res$Freq),]
+for (i in 1:10)
+{
+  modtop10[i]=paste(which(intToBits(as.integer(paste(modcho[i]))-1)==1),collapse=" ")
+}
+ if (prt==TRUE)
+  {
+  cat("\n")
+  cat("bCalc + false")
+  cat("\n")
+  cat("Model posterior probabilities are calculated by Gibbs")
+  cat("\n")
+  cat("\n")
+  print(data.frame(Top10Models=modtop10,PostProb=round(probtop10,4)))
+  cat("\n")
+  cat("\n")
+  }
+  list(top10models=modtop10,postprobtop10=probtop10)
+}
+}
+
+ChoiceBayesReg(y,x,g=length(y),bCalc=FALSE)
+```
+
+Le meilleur modèle est le modèle avec la variable 15 uniquement dont la probabilité est la plus importante. Cette variable est **taux_acces_attendu_premiere_bac**. \
+Cette même variable semble être sélectionnée également dans tous les autres hormis le 2ème meilleur modèle. En deuxième position, il y a justement le modèle constitué de la seule variable n°17 qui se positionne, c'est la variable taux_reussite_attendu_total_series. Puis, apparaissent également d'autres modèles avec les variables 14, 7, 12. Nous retrouvons presque les variables qui ont été sélectionnés par les facteurs de Bayes. \
+
+A présent, essayons l'algorithme de l'échantillonneur de Gibbs défini par la méthode vue en cours pour voir la sélection proposée. \
+
+
+```{r Methode_ChoiceBayesGibbs,results='hold',echo=FALSE,warning=FALSE,message=FALSE}
+
+## fonction qui calcule la log-vraisemblance marginale
+marglkd = function(gamma, X,y, g=length(y)){
+  q=sum(gamma)
+  n=length(y)
+  X1=X[ ,c(T,gamma)]
+  if(q==0){return( -n/2 * log(t(y)%*%y))}
+  m = -q/2*log(g+1) -
+    n/2*log(t(y)%*%y - g/(g+1)* t(y)%*% X1 %*%
+              solve(t(X1)%*%X1) %*%t(X1)%*%y)
+return(m)
+}
+
+ChoiceBayesGibbs = function (y,x,g=length(y),niter = 1e4)
+{
+
+nbCol = dim(x)[2]
+nbCol1 = nbCol-1
+x.var = cbind(1, x) # on ajoute une colonne de 1 pour beta_0
+y.var<-y
+gamma = matrix(F, nrow = niter, ncol = nbCol)
+gamma0 = sample(c(T, F), size = nbCol, replace = TRUE) 
+lkd = rep(0, niter)
+modelnumber = rep(0, niter)
+oldgamma = gamma0
+for(i in 1:niter){
+  newgamma = oldgamma
+  for(j in 1:nbCol){
+    g1 = newgamma; g1[j]=TRUE
+    g2 = newgamma; g2[j]=FALSE
+    ml1 = marglkd(g1, x.var, y)
+    ml2 = marglkd(g2, x.var, y)
+    p = c(ml1,ml2)-min(ml1,ml2)
+
+
+    if(!is.finite(exp(p[1]))) p[1] = log(p[1])
+    if(!is.finite(exp(p[2]))) p[2] = log(p[2])
+    newgamma[j] = sample(c(T,F), size=1, prob=exp(p)) 
+  }
+  gamma[i,] = newgamma
+  lkd[i] = marglkd(newgamma, x.var, y )
+  modelnumber[i] = sum(newgamma*2^(0:nbCol1))
+  oldgamma = newgamma
+}
+  
+  gamma.res<-cbind.data.frame(x=colnames(x.var[,-1]),gamma.mean=colMeans(gamma))
+  gamma.res<-gamma.res[order(-gamma.res$gamma.mean),]
+  res <-cbind.data.frame(modelnumber,gamma)
+  return (res)
+}
+res.echGibbs = ChoiceBayesGibbs(y,scale(x),g=length(y),niter = 1e4)
+modelnumber = res.echGibbs[,1]
+gamma = res.echGibbs[,-1]
+gamma.res<-cbind.data.frame(x=colnames(x),gamma.mean=colMeans(gamma))
+gamma.res<-gamma.res[order(-gamma.res$gamma.mean),]
+gamma.res
+```
+Les résultats nous donnent une prédominance de la variable n°15 (taux_acces_attendu_premiere_bac), puis la n°17 en 2ème position, et la 13 et 14, et les prochaines variables à peu près dans le même ordre. \
+
+
+
+Nous devons maintenant vérifier la convergence de notre chaîne de Markov, car les premières itérations ne suivent généralement pas la loi cible. Nous allons donc observer la trace de la chaîne c'est-à-dire sa valeur prise à chaque itération pour détecter à quel moment la chaîne atteint sa loi limite.
+
+```{r Convergence_autocorrelation,fig.show='asis',results='hold',echo=FALSE,warning=FALSE,message=FALSE}
+par(mar=c(1,1,1,1))
+par(mfrow=c(2,3))
+for(i in 1:6) acf(as.numeric(gamma[,i]))
+
+par(mfrow=c(4,3))
+for(i in 7:17) acf(as.numeric(gamma[,i]))
+```
+
+```{r Convergence_trace,results='hold',echo=FALSE,warning=FALSE,message=FALSE,fig.show='asis'}
+p<- dim(X)[2]
+gamma.m<-as.matrix(gamma) 
+
+par(mar=c(1,1,1,1))
+par(mfrow=c(6,3))
+for(i in 1:p) plot(rollapply(gamma.m[,i], width=50, FUN=mean), type="l")
+
+```
+Dans chaque graphe d'autocorrélation, nous voyons que la courbe décroit très rapidement. De ce fait, notre chaîne converge donc très rapidement, et ce dès les premières itérations. \
+
+Sur les graphes de trace, nous constatons que les courbes sont relativement stables autour d'une valeur moyenne pour chaque variable, cela montre que l'algorithme fonctionne correctement. \
+
+### II.2 Régression linéaire classique 
+
+Comparons à présent ce modèle avec une approche fréquentiste en appliquant une recherche exhaustive sur la régression linéaire et une recherche pas à pas stepwise. \
+
+```{r Regression_lineaire_exhaustive,results='hide',echo=FALSE,warning=FALSE,message=FALSE,fig.show='asis',fig.height=4, fig.width=8}
+data_reglin = as.data.frame(cbind(Barre=y,scale(x)))
+reg_lineaire_ord <- lm(Barre~., data=data_reglin)
+summary(reg_lineaire_ord)
+
+
+reg.modelbsubset <- regsubsets(Barre ~., data_reglin, 
+                              nbest=1, int=T,nvmax = 6)
+reg.summary=summary(reg.modelbsubset)
+
+with(reg.summary,data.frame(rsq,adjr2,cp,rss,bic,outmat))
+
+par(mar=c(1,1,1,1))
+plot(reg.modelbsubset,scale= "r2")    
+plot(reg.modelbsubset,scale="adjr2")
+plot(reg.modelbsubset,scale="Cp")
+plot(reg.modelbsubset,scale= "bic")
+
+```
+
+En réalisant la régression linéaire ordinaire, la seule variable qui est significative au sens de Wald est taux_acces_attendu_premiere_bac (la n°15 comme déjà vu avec le modèle bayesien). \
+
+Suivant les différents critères (Cp de Mallow's, Bic,R2, R2adj) la variable qui apparaît toujours est taux_acces_attendu_premiere_bac. Puis, selon Cp et Bic, les meilleurs modèles font apparaître également en plus de la n°15 la 5, 6, 7, 13 et 14. \
+
+Si nous envisageaons une recherche pas à pas (stepwise) basé sur le critère Aic par exemple, voici ce que cela donnerait : \
+
+```{r Regression_lineaire_stepwise,results='hide',echo=FALSE,warning=FALSE,message=FALSE}
+modelnull.reg <- lm(Barre~1, data_reglin)
+modelsat.reg <- lm(Barre~.,data_reglin)
+
+stepwaic.model.reg <- stepAIC(modelnull.reg,
+                             scope=list(upper=modelsat.reg),
+data = data_reglin, direction = "both")
+
+summary(stepwaic.model.reg)
+```
+
+Avec cette méthode stepwise, le meilleur modèle qui apparaît est celui avec la seule variable taux_acces_attendu_premiere_bac, tout comme parmi les meilleurs modèles de la recherche exhaustive. \
+
+Ainsi, la sélection de covariables a été réalisée par ces différentes méthodes (facteur de Bayes et échantillonnage de Gibbs). \
+
+Nous allons maintenant nous intéresser particulièrement aux 2 matières: Maths et Anglais. \
+
+## III. Régression linéaire bayesienne sur Maths et Anglais   
+\
+
+### III.1 Régression bayesienne sur Maths et Anglais 
+
+```{r Preparation_donnees_maths_anglais,results='hide',echo=FALSE,warning=FALSE,message=FALSE}
+data_maths = subset(datamutations_nodup,Matiere=="MATHS")
+data_anglais = subset(datamutations_nodup,Matiere=="ANGLAIS")
+
+data_maths = data_maths[,-c(1:5)]
+y.maths=log(data_maths$Barre)
+x.maths=as.matrix(data_maths[-1])
+x.maths=scale(x.maths)
+
+data_anglais = data_anglais[,-c(1:5)]
+y.ang=log(data_anglais$Barre)
+x.ang=as.matrix(data_anglais[-1])
+x.ang=scale(x.ang)
+```
+
+```{r Regression_bayes_maths_anglais,results='hide',echo=FALSE,warning=FALSE,message=FALSE}
+BayesReg(y.maths,x.maths,betatilde = rep(0,17), g=length(y.maths), prt = T)
+BayesReg(y.maths,x.maths,betatilde = rep(0,17), g=1, prt = T)
+
+BayesReg(y.ang,x.ang,betatilde = rep(0,17), g=length(y.ang), prt = T)
+BayesReg(y.ang,x.ang,betatilde = rep(0,17), g=1, prt = T)
+
+```
+
+Dans la régression avec g=n pour les maths, la variable 11 (effectif_de_premiere) est la seule significative. \
+Dans la régression avec g=1 pour les maths, il y a la n°4,5,10,11,12,13 et 14 qui sont significatives. \
+
+Dans la régression avec g=n pour l'anglais, la seule variable significative est la n°15 (taux_acces_attendu_premiere_bac). Nous retrouvons encore cette variable prépondérante ici. \
+Dans la régression avec g=1 pour l'anglais, les variables n° 1,4,8,13 et 15 qui sont significatives. \
+
+Procédons à la sélection de modèles par l'échantillonneur de Gibbs proposé dans la fonction ModChoBayesReg (avec g=n). \
+
+```{r Selection_modeles_Gibbs,results='hold',echo=FALSE,warning=FALSE,message=FALSE}
+ModChoBayesReg(y.maths,x.maths,g=length(y.maths))
+
+ModChoBayesReg(y.ang,x.ang,g=length(y.ang))
+
+```
+
+Dans les 2 cas, nous retrouvons le top 1 des modèles avec la seule variable n°5 (taux_brut_de_reussite_serie_es). \
+En maths, la variable n°4 est également très souvent présente dans tous les autres modèles. (taux_brut_de_reussite_serie_l). \
+En anglais, en plus de la n°5, ce sont les variables n°4 et 15 qui sont souvent rencontrées dans les autres modèles. (taux_brut_de_reussite_serie_l et taux_acces_attendu_premiere_bac). \
+
+
+### III.2 Régression linéaire sur Maths et Anglais
+
+Revenons à un modèle linéaire gaussien ordinaire pour procéder à la comparaison. \
+
+```{r Regression_lineaire_exhaustive_maths_angl,results='hide',echo=FALSE,warning=FALSE,message=FALSE,fig.show='asis',fig.height=4, fig.width=8}
+data_reglin_maths = as.data.frame(cbind(Barre=y.maths,scale(x.maths)))
+reg_lineaire_ord_maths <- lm(Barre~., data=data_reglin_maths)
+summary(reg_lineaire_ord_maths)
+
+
+reg.modelbsubset.maths <- regsubsets(Barre ~., data_reglin_maths, 
+                              nbest=1, int=T,nvmax = 6)
+reg.summary.maths=summary(reg.modelbsubset.maths)
+
+with(reg.summary.maths,data.frame(rsq,adjr2,cp,rss,bic,outmat))
+
+par(mar=c(1,1,1,1))
+plot(reg.modelbsubset.maths,scale= "r2")    
+plot(reg.modelbsubset.maths,scale="adjr2")
+plot(reg.modelbsubset.maths,scale="Cp")
+plot(reg.modelbsubset.maths,scale= "bic")
+
+data_reglin_ang = as.data.frame(cbind(Barre=y.ang,scale(x.ang)))
+reg_lineaire_ord_ang <- lm(Barre~., data=data_reglin_ang)
+summary(reg_lineaire_ord_ang)
+
+
+reg.modelbsubset.ang <- regsubsets(Barre ~., data_reglin_ang, 
+                              nbest=1, int=T,nvmax = 6)
+reg.summary.ang=summary(reg.modelbsubset.ang)
+
+with(reg.summary.ang,data.frame(rsq,adjr2,cp,rss,bic,outmat))
+
+par(mar=c(1,1,1,1))
+plot(reg.modelbsubset.ang,scale= "r2")    
+plot(reg.modelbsubset.ang,scale="adjr2")
+plot(reg.modelbsubset.ang,scale="Cp")
+plot(reg.modelbsubset.ang,scale= "bic")
+```
+
+
+```{r Regression_lineaire_stepwise_maths_angl,results='hide',echo=FALSE,warning=FALSE,message=FALSE}
+modelnull.reg.maths <- lm(Barre~1, data_reglin_maths)
+modelsat.reg.maths <- lm(Barre~.,data_reglin_maths)
+
+stepwaic.model.reg.maths <- stepAIC(modelnull.reg.maths,
+                             scope=list(upper=modelsat.reg.maths),
+data = data_reglin_maths, direction = "both")
+
+summary(stepwaic.model.reg.maths)
+
+
+modelnull.reg.ang <- lm(Barre~1, data_reglin_ang)
+modelsat.reg.ang <- lm(Barre~.,data_reglin_ang)
+
+stepwaic.model.reg.ang <- stepAIC(modelnull.reg.ang,
+                             scope=list(upper=modelsat.reg.ang),
+data = data_reglin_ang, direction = "both")
+
+summary(stepwaic.model.reg.ang)
+```
+
+La méthode stepwise pas à pas sélectionne un modèle, pour les maths, avec 3 variables dont 2 sont significatives et sont taux_brut_de_reussite_serie_es et taux_brut_de_reussite_serie_l. \
+
+Pour l'anglais, le modèle sélectionné par la méthode possède 4 variables qui sont toutes significatives à savoir, les 2 similaires à celui des maths et taux_acces_attendu_premiere_bac et taux_acces_brut_seconde_bac. \
+
+
+## **Conclusion**
+
+Dans un premier contexte général, toutes matières confondues, l'approche fréquentiste ou bayesienne sélectionne comme meilleur modèle celui ayant comme unique variable **taux_acces_attendu_premiere_bac**. \
+
+Dans les bases ne contenant que les matières maths ou anglais, les 2 approches sont moins en accord. L'approche bayesienne va privilégier le modèle avec l'unique variable **taux_brut_de_reussite_serie_es** tandis que les modèles de régression linéaire ordinaires seront moins parcimonieux avec au moins 3 variables dont taux_brut_de_reussite_serie_es,  taux_brut_de_reussite_serie_l et taux_acces_attendu_premiere_bac. \
+
